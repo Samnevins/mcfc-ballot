@@ -10,7 +10,7 @@ import { ActionButton } from "@/components/ActionButton";
 import { Badge } from "@/components/Badge";
 import { Results } from "@/components/Results";
 import { GameTags } from "@/components/GameTags";
-import { fixtureTitle } from "@/lib/fixture";
+import { fixtureTitle, ticketsLabel } from "@/lib/fixture";
 
 export default async function GamePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -54,7 +54,7 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
           <div><dt className="text-slate-500">Kickoff</dt><dd className="font-medium">{fmt(game.kickoff)}</dd></div>
           <div><dt className="text-slate-500">Application deadline</dt><dd className="font-medium">{fmt(game.applicationDeadline)}</dd></div>
           <div><dt className="text-slate-500">Draw</dt><dd className="font-medium">{fmt(game.drawAt)}</dd></div>
-          <div><dt className="text-slate-500">Tickets / applicants</dt><dd className="font-medium">{game.ticketsAvailable} / {game._count.applications}</dd></div>
+          <div><dt className="text-slate-500">Tickets / applicants</dt><dd className="font-medium">{ticketsLabel(game.ticketsAvailable)} / {game._count.applications}</dd></div>
         </dl>
         {user.role === "ADMIN" && (
           <Link href={`/admin/games/${game.id}`} className="btn-secondary mt-4">Manage game</Link>
@@ -79,9 +79,10 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
                 <ActionButton action={withdrawAction.bind(null, game.id)} className="btn-secondary">Withdraw</ActionButton>
               )}
               {isLeader && group && !appliedWithGroup && (
-                groupSize <= game.ticketsAvailable ? (
+                game.ticketsAvailable == null || groupSize <= game.ticketsAvailable ? (
                   <ActionButton action={applyGroupAction.bind(null, game.id)}
-                    confirm={`Apply for ${groupSize} ticket(s) as ${group.name}? Any individual applications by members are replaced.`}>
+                    confirm={`Apply for ${groupSize} ticket(s) as ${group.name}? Any individual applications by members are replaced.${
+                      game.ticketsAvailable == null ? " Tickets are TBC: the group can only win if enough are released." : ""}`}>
                     Apply as group {group.name} ({groupSize})
                   </ActionButton>
                 ) : (

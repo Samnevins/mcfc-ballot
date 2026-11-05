@@ -80,7 +80,7 @@ model Game {
   kickoff             DateTime
   applicationDeadline DateTime
   drawAt              DateTime
-  ticketsAvailable    Int
+  ticketsAvailable    Int? // null = TBC (often not known until the draw)
   createdAt           DateTime      @default(now())
   applications        Application[]
   draws               Draw[]

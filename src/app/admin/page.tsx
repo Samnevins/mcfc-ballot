@@ -6,6 +6,7 @@ import { gameStatus, STATUS_LABEL } from "@/lib/status";
 import { fmt } from "@/lib/time";
 import { Badge } from "@/components/Badge";
 import { GameTags } from "@/components/GameTags";
+import { ticketsLabel } from "@/lib/fixture";
 
 export default async function AdminGames() {
   await requireAdmin();
@@ -32,7 +33,7 @@ export default async function AdminGames() {
                   <td><GameTags game={g} /></td>
                   <td className="whitespace-nowrap">{fmt(g.kickoff)}</td>
                   <td className="whitespace-nowrap">{fmt(g.applicationDeadline)}</td>
-                  <td>{g.ticketsAvailable}</td>
+                  <td>{ticketsLabel(g.ticketsAvailable)}</td>
                   <td>{g._count.applications}</td>
                   <td><Badge value={s}>{STATUS_LABEL[s]}</Badge></td>
                 </tr>

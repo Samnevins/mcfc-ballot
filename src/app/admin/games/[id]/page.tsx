@@ -86,7 +86,9 @@ export default async function AdminGame({ params }: { params: Promise<{ id: stri
               fields={
                 <div>
                   <label className="label" htmlFor="tickets">Tickets to draw</label>
-                  <input id="tickets" name="tickets" type="number" min={0} defaultValue={game.ticketsAvailable} className="input w-32" />
+                  <input id="tickets" name="tickets" type="number" min={0} required defaultValue={game.ticketsAvailable ?? undefined}
+                    placeholder={game.ticketsAvailable == null ? "TBC: enter" : undefined} className="input w-32" />
+                  {game.ticketsAvailable == null && <p className="mt-1 text-xs text-amber-700">Tickets are TBC. Enter the final number.</p>}
                 </div>
               }
             >

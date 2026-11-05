@@ -114,8 +114,17 @@ const gameSchema = z
     kickoff: z.string().transform(fromLondonInput),
     applicationDeadline: z.string().transform(fromLondonInput),
     drawAt: z.string().transform(fromLondonInput),
-    ticketsAvailable: z.coerce.number().int().min(0),
+    ticketsTbc: z.literal("on").optional(),
+    ticketsAvailable: z.string().optional(),
   })
+  .transform(({ ticketsTbc, ticketsAvailable, ...g }) => ({
+    ...g,
+    ticketsAvailable: ticketsTbc || !ticketsAvailable?.trim() ? null : Number(ticketsAvailable),
+  }))
+  .refine(
+    (g) => g.ticketsAvailable == null || (Number.isInteger(g.ticketsAvailable) && g.ticketsAvailable >= 0),
+    "Tickets must be a whole number, or TBC",
+  )
   .refine((g) => g.applicationDeadline <= g.drawAt, "Deadline must be before the draw")
   .refine((g) => g.drawAt < g.kickoff, "Draw must be before kickoff");
 
@@ -145,7 +154,8 @@ export async function deleteGameAction(id: string): Promise<ActionState> {
 
 export async function drawAction(gameId: string, _: ActionState, fd: FormData): Promise<ActionState> {
   const admin = await requireAdmin();
-  return attempt(() => svc.runGameDraw(gameId, Number(fd.get("tickets")), admin.id), "Draw complete");
+  const raw = String(fd.get("tickets") ?? "").trim();
+  return attempt(() => svc.runGameDraw(gameId, raw === "" ? NaN : Number(raw), admin.id), "Draw complete");
 }
 
 export async function redrawAction(gameId: string): Promise<ActionState> {

@@ -79,7 +79,7 @@ export async function runGameDraw(gameId: string, tickets: number, adminId: stri
     const game = await tx.game.findUniqueOrThrow({ where: { id: gameId } });
     if (now < game.applicationDeadline) throw new Error("Applications are still open");
     if (await tx.draw.findFirst({ where: { gameId } })) throw new Error("Draw already run");
-    if (!Number.isInteger(tickets) || tickets < 0) throw new Error("Invalid ticket count");
+    if (!Number.isInteger(tickets) || tickets < 0) throw new Error("Enter the number of tickets to draw");
 
     const cfg = await getSettings(tx);
     const apps = await tx.application.findMany({ where: { gameId }, include: { user: true } });
@@ -116,6 +116,8 @@ export async function runGameDraw(gameId: string, tickets: number, adminId: stri
         ranAt: now,
       },
     });
+    // The real number is known now: record it on the game (it may have been TBC).
+    await tx.game.update({ where: { id: gameId }, data: { ticketsAvailable: tickets } });
     const respondBy = new Date(now.getTime() + cfg.acceptWindowHours * 3600_000);
     for (const userId of result.winnerUserIds) {
       await tx.allocation.create({ data: { drawId: draw.id, gameId, userId, respondBy } });
@@ -236,7 +238,7 @@ export async function applyGroup(gameId: string, leaderId: string, now = new Dat
     const game = await openGame(gameId, now, tx);
     const group = await tx.group.findFirst({ where: { leaderId }, include: { members: true } });
     if (!group) throw new Error("Only a group leader can apply for the group");
-    if (group.members.length > game.ticketsAvailable) {
+    if (game.ticketsAvailable != null && group.members.length > game.ticketsAvailable) {
       throw new Error(`Your group has ${group.members.length} members but only ${game.ticketsAvailable} tickets are available`);
     }
     for (const m of group.members) {

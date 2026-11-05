@@ -45,7 +45,7 @@ export async function joinGroup(userId: string, code: string, now = new Date()) 
     const size = group._count.members + 1;
     for (const gameId of await openGroupGames(tx, group.id, now)) {
       const game = await tx.game.findUniqueOrThrow({ where: { id: gameId } });
-      if (size > game.ticketsAvailable) {
+      if (game.ticketsAvailable != null && size > game.ticketsAvailable) {
         throw new Error(`The group has applied for ${game.opponent}, which only has ${game.ticketsAvailable} tickets`);
       }
       await tx.application.upsert({

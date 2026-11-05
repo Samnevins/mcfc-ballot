@@ -35,6 +35,7 @@ Ticket ballot app for the Manchester City London Supporters Club. Keep it simple
 - Every change to weight or penalty goes through `applyChange()` in `service.ts`, so it is logged.
 - Draws are immutable audit records (seed + inputJson + orderJson). Never edit or delete them. `inputJson` is `DrawEntry[]`. Read it with `normalizeInput()`, which also handles the older format with one row per user.
 - `User.status` controls access: PENDING | APPROVED | REJECTED | SUSPENDED. Only APPROVED users can sign in.
+- `Game.ticketsAvailable` is nullable: null means TBC. Show it with `ticketsLabel()`. Skip ticket-size checks while it's null. Running the draw records the final number on the game; the number actually drawn lives in `Draw.ticketCount`.
 - `Application.groupId` is a plain string with no foreign key, so closed applications stay grouped even if the group later changes or is deleted.
 - Every server action must call `requireUser()` or `requireAdmin()` itself. Page guards don't protect actions.
 - Next 16: `params` and `searchParams` are Promises, so `await` them.

@@ -35,11 +35,11 @@ async function main() {
   });
   // 2: open for applications
   const g2 = await db.game.create({
-    data: { opponent: "Chelsea", venue: "Stamford Bridge, London", homeAway: "AWAY", competition: "FA_CUP", kickoff: at(24, 17), applicationDeadline: at(12, 12), drawAt: at(13, 18), ticketsAvailable: 3 },
+    data: { opponent: "Chelsea", venue: "Stamford Bridge, London", homeAway: "AWAY", competition: "FA_CUP", kickoff: at(24, 17), applicationDeadline: at(12, 12), drawAt: at(13, 18), ticketsAvailable: null },
   });
   // 3: open, later
   await db.game.create({
-    data: { opponent: "Tottenham Hotspur", venue: "Etihad Stadium, Manchester", homeAway: "HOME", competition: "CARABAO_CUP", kickoff: at(40, 20), applicationDeadline: at(28, 12), drawAt: at(29, 18), ticketsAvailable: 5 },
+    data: { opponent: "Tottenham Hotspur", venue: "Etihad Stadium, Manchester", homeAway: "HOME", competition: "CARABAO_CUP", kickoff: at(40, 20), applicationDeadline: at(28, 12), drawAt: at(29, 18), ticketsAvailable: null },
   });
 
   // Two registrations awaiting admin approval
