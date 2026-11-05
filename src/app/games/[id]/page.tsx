@@ -9,6 +9,8 @@ import { applyAction, applyGroupAction, respondAction, withdrawAction, withdrawG
 import { ActionButton } from "@/components/ActionButton";
 import { Badge } from "@/components/Badge";
 import { Results } from "@/components/Results";
+import { GameTags } from "@/components/GameTags";
+import { fixtureTitle } from "@/lib/fixture";
 
 export default async function GamePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -43,8 +45,8 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
       <section className="card">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <h1>Manchester City v {game.opponent}</h1>
-            <p className="text-slate-600">{game.venue}</p>
+            <h1>{fixtureTitle(game)}</h1>
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-slate-600"><GameTags game={game} /> {game.venue}</p>
           </div>
           <Badge value={status}>{STATUS_LABEL[status]}</Badge>
         </div>

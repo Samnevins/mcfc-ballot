@@ -11,6 +11,7 @@ import { requireAdmin, requireUser } from "@/lib/guard";
 import * as svc from "@/lib/service";
 import * as groups from "@/lib/groups";
 import { fromLondonInput } from "@/lib/time";
+import { COMPETITION_KEYS, HOME_AWAY_KEYS } from "@/lib/fixture";
 import type { ActionState } from "@/components/ActionButton";
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong");
@@ -108,6 +109,8 @@ const gameSchema = z
   .object({
     opponent: z.string().trim().min(1, "Opponent is required"),
     venue: z.string().trim().min(1, "Venue is required"),
+    homeAway: z.enum(HOME_AWAY_KEYS, "Choose home or away"),
+    competition: z.enum(COMPETITION_KEYS, "Choose a competition"),
     kickoff: z.string().transform(fromLondonInput),
     applicationDeadline: z.string().transform(fromLondonInput),
     drawAt: z.string().transform(fromLondonInput),

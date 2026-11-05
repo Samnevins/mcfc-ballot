@@ -25,6 +25,7 @@ Ticket ballot app for the Manchester City London Supporters Club. Keep it simple
 - `src/lib/status.ts`: derived game and allocation statuses
 - `src/lib/time.ts`: Europe/London conversions. Store UTC, display and input in London time.
 - `src/lib/groups.ts`: group create/join/leave/remove/disband. Membership changes only touch applications for games that are still open.
+- `src/lib/fixture.ts`: match tags (home/away, competition), their labels, and `fixtureTitle()`. Show tags with `<GameTags>`.
 - `src/lib/guard.ts`: `requireUser()` / `requireAdmin()`. These load the user fresh from the DB and only accept `APPROVED` users.
 - `src/components/useFormAction.ts`: use it for every form. It submits through onSubmit so React 19 doesn't reset the form on a validation error.
 

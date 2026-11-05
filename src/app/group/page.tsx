@@ -8,6 +8,7 @@ import {
 } from "@/app/actions";
 import { ActionButton } from "@/components/ActionButton";
 import { GroupMembers } from "@/components/GroupMembers";
+import { GameTags } from "@/components/GameTags";
 
 export default async function GroupPage() {
   const user = await requireUser();
@@ -82,7 +83,7 @@ export default async function GroupPage() {
         ) : (
           <ul className="divide-y divide-slate-100 text-sm">
             {apps.map((a) => (
-              <li key={a.id} className="py-2"><Link href={`/games/${a.gameId}`} className="font-medium hover:underline">v {a.game.opponent}</Link> · {fmt(a.game.kickoff)}</li>
+              <li key={a.id} className="py-2"><Link href={`/games/${a.gameId}`} className="font-medium hover:underline">v {a.game.opponent}</Link> <GameTags game={a.game} /> · {fmt(a.game.kickoff)}</li>
             ))}
           </ul>
         )}

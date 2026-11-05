@@ -11,6 +11,8 @@ datasource db {
 // Role: SUPPORTER | ADMIN
 // UserStatus: PENDING | APPROVED | REJECTED | SUSPENDED (only APPROVED can sign in)
 // AllocationStatus: PENDING | ACCEPTED | RETURNED | EXPIRED
+// HomeAway: HOME | AWAY
+// Competition: PREMIER_LEAGUE | FA_CUP | CARABAO_CUP | CHAMPIONS_LEAGUE | OTHER
 // WeightReason: UNSUCCESSFUL | ACCEPTED | RETURNED | EXPIRED | PENALTY_USED | GROUP_WON | ADMIN
 
 model User {
@@ -73,6 +75,8 @@ model Game {
   id                  String        @id @default(cuid())
   opponent            String
   venue               String
+  homeAway            String        @default("HOME")
+  competition         String        @default("PREMIER_LEAGUE")
   kickoff             DateTime
   applicationDeadline DateTime
   drawAt              DateTime

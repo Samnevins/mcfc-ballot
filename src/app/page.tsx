@@ -5,6 +5,7 @@ import { settle } from "@/lib/service";
 import { gameStatus, STATUS_LABEL } from "@/lib/status";
 import { fmt, londonDay } from "@/lib/time";
 import { Badge } from "@/components/Badge";
+import { GameTags } from "@/components/GameTags";
 
 type Ev = { gameId: string; kind: "Kickoff" | "Deadline" | "Draw"; at: Date; label: string };
 const EV_STYLE = { Kickoff: "bg-navy text-white", Deadline: "bg-amber-100 text-amber-900", Draw: "bg-sky/30 text-navy" };
@@ -24,7 +25,7 @@ export default async function Calendar({ searchParams }: { searchParams: Promise
   const events: Ev[] = games.flatMap((g) => [
     { gameId: g.id, kind: "Deadline" as const, at: g.applicationDeadline, label: `Deadline: ${g.opponent}` },
     { gameId: g.id, kind: "Draw" as const, at: g.drawAt, label: `Draw: ${g.opponent}` },
-    { gameId: g.id, kind: "Kickoff" as const, at: g.kickoff, label: `v ${g.opponent}` },
+    { gameId: g.id, kind: "Kickoff" as const, at: g.kickoff, label: `v ${g.opponent} (${g.homeAway === "HOME" ? "H" : "A"})` },
   ]);
   const byDay = new Map<string, Ev[]>();
   for (const e of events) {
@@ -89,6 +90,7 @@ export default async function Calendar({ searchParams }: { searchParams: Promise
               <li key={g.id}>
                 <Link href={`/games/${g.id}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3 hover:bg-slate-50">
                   <span className="min-w-48 font-medium">v {g.opponent}</span>
+                  <GameTags game={g} />
                   <span className="text-sm text-slate-500">{fmt(g.kickoff)} · {g.venue}</span>
                   <span className="ml-auto flex items-center gap-2">
                     {g.applications.length > 0 && <Badge value="drawn">Applied</Badge>}

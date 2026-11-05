@@ -5,6 +5,7 @@ import { settle } from "@/lib/service";
 import { gameStatus, STATUS_LABEL } from "@/lib/status";
 import { fmt } from "@/lib/time";
 import { Badge } from "@/components/Badge";
+import { GameTags } from "@/components/GameTags";
 
 export default async function AdminGames() {
   await requireAdmin();
@@ -21,13 +22,14 @@ export default async function AdminGames() {
       </div>
       <div className="card overflow-x-auto">
         <table className="table">
-          <thead><tr><th>Opponent</th><th>Kickoff</th><th>Deadline</th><th>Tickets</th><th>Applicants</th><th>Status</th></tr></thead>
+          <thead><tr><th>Opponent</th><th>Match</th><th>Kickoff</th><th>Deadline</th><th>Tickets</th><th>Applicants</th><th>Status</th></tr></thead>
           <tbody>
             {games.map((g) => {
               const s = gameStatus(g, g._count.draws > 0);
               return (
                 <tr key={g.id}>
                   <td><Link href={`/admin/games/${g.id}`} className="font-medium text-navy hover:underline">{g.opponent}</Link></td>
+                  <td><GameTags game={g} /></td>
                   <td className="whitespace-nowrap">{fmt(g.kickoff)}</td>
                   <td className="whitespace-nowrap">{fmt(g.applicationDeadline)}</td>
                   <td>{g.ticketsAvailable}</td>

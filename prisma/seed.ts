@@ -31,15 +31,15 @@ async function main() {
 
   // 1: deadline passed, awaiting draw (8 applicants) — admin can run the draw immediately
   const g1 = await db.game.create({
-    data: { opponent: "Arsenal", venue: "Emirates Stadium, London", kickoff: at(10), applicationDeadline: at(-1, 12), drawAt: at(0, 18), ticketsAvailable: 4 },
+    data: { opponent: "Arsenal", venue: "Emirates Stadium, London", homeAway: "AWAY", competition: "PREMIER_LEAGUE", kickoff: at(10), applicationDeadline: at(-1, 12), drawAt: at(0, 18), ticketsAvailable: 4 },
   });
   // 2: open for applications
   const g2 = await db.game.create({
-    data: { opponent: "Chelsea", venue: "Stamford Bridge, London", kickoff: at(24, 17), applicationDeadline: at(12, 12), drawAt: at(13, 18), ticketsAvailable: 3 },
+    data: { opponent: "Chelsea", venue: "Stamford Bridge, London", homeAway: "AWAY", competition: "FA_CUP", kickoff: at(24, 17), applicationDeadline: at(12, 12), drawAt: at(13, 18), ticketsAvailable: 3 },
   });
   // 3: open, later
   await db.game.create({
-    data: { opponent: "Tottenham Hotspur", venue: "Tottenham Hotspur Stadium, London", kickoff: at(40, 20), applicationDeadline: at(28, 12), drawAt: at(29, 18), ticketsAvailable: 5 },
+    data: { opponent: "Tottenham Hotspur", venue: "Etihad Stadium, Manchester", homeAway: "HOME", competition: "CARABAO_CUP", kickoff: at(40, 20), applicationDeadline: at(28, 12), drawAt: at(29, 18), ticketsAvailable: 5 },
   });
 
   // Two registrations awaiting admin approval

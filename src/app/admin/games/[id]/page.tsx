@@ -12,6 +12,8 @@ import { ActionButton } from "@/components/ActionButton";
 import { Badge } from "@/components/Badge";
 import { GameForm } from "@/components/GameForm";
 import { Results } from "@/components/Results";
+import { GameTags } from "@/components/GameTags";
+import { fixtureTitle } from "@/lib/fixture";
 
 export default async function AdminGame({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -40,7 +42,10 @@ export default async function AdminGame({ params }: { params: Promise<{ id: stri
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1>v {game.opponent}</h1>
+        <div>
+          <h1>{fixtureTitle(game)}</h1>
+          <GameTags game={game} />
+        </div>
         <div className="flex items-center gap-2">
           <Badge value={status}>{STATUS_LABEL[status]}</Badge>
           <Link href={`/games/${id}`} className="btn-secondary">Public page</Link>
@@ -54,6 +59,8 @@ export default async function AdminGame({ params }: { params: Promise<{ id: stri
           values={{
             opponent: game.opponent,
             venue: game.venue,
+            homeAway: game.homeAway,
+            competition: game.competition,
             kickoff: toLondonInput(game.kickoff),
             applicationDeadline: toLondonInput(game.applicationDeadline),
             drawAt: toLondonInput(game.drawAt),

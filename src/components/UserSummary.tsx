@@ -5,6 +5,7 @@ import { getSettings } from "@/lib/service";
 import { allocationStatus, gameStatus } from "@/lib/status";
 import { fmt } from "@/lib/time";
 import { Badge } from "@/components/Badge";
+import { GameTags } from "@/components/GameTags";
 import { WeightHistory } from "@/components/WeightHistory";
 
 /** Weight, penalties, applications and history for one user. Used by /me and admin. */
@@ -46,6 +47,7 @@ export async function UserSummary({ userId }: { userId: string }) {
             return (
               <li key={game.id} className="flex flex-wrap items-center gap-3 py-2 text-sm">
                 <Link href={`/games/${game.id}`} className="font-medium hover:underline">v {game.opponent}</Link>
+                <GameTags game={game} />
                 <span className="text-slate-500">{fmt(game.kickoff)}</span>
                 {groupId && <span className="text-xs text-slate-500">· with group</span>}
                 <span className="ml-auto">
