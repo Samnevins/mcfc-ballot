@@ -16,7 +16,8 @@ export type WeightReason =
   | "ACCEPTED"
   | "RETURNED"
   | "EXPIRED"
-  | "PENALTY_USED";
+  | "PENALTY_USED"
+  | "GROUP_WON";
 
 export type StateChange = {
   userId: string;
@@ -62,6 +63,11 @@ export function onAccepted(s: UserState): UserState {
   return { ...s, weight: BASE_WEIGHT };
 }
 
+/** A group entry won: every member resets to base immediately. */
+export function onGroupWin(s: UserState): UserState {
+  return { ...s, weight: BASE_WEIGHT };
+}
+
 /** Returned, or not accepted by the deadline. */
 export function onForfeit(s: UserState): UserState {
   return { ...s, banGamesLeft: BAN_GAMES, reducedGamesLeft: REDUCED_GAMES };
@@ -77,19 +83,25 @@ export function consumePenaltyGame(s: UserState): UserState {
 const hasPenalty = (s: UserState) => s.banGamesLeft > 0 || s.reducedGamesLeft > 0;
 
 // ---------- Draw ----------
+//
+// The draw ranks *entries*. An entry is one supporter, or a group of supporters
+// applying together. A group entry:
+//   - drops banned members (they get no ticket),
+//   - weighs the average of its remaining members' effective weights,
+//   - needs one ticket per remaining member, and only wins if that many are left.
 
-export type Entrant = { userId: string; weight: number };
+export type Entrant = { id: string; weight: number };
 
 /**
  * Weighted random ordering without replacement.
- * Returns every entrant with weight > 0, ranked. Winners = first N.
- * Input order does not matter (sorted by userId first) so a seed fully reproduces the result.
+ * Returns every entrant with weight > 0, ranked.
+ * Input order does not matter (sorted by id first), so a seed fully reproduces the result.
  */
 export function drawOrder(entrants: Entrant[], seed: number): string[] {
   const rand = mulberry32(seed);
   const pool = entrants
     .filter((e) => e.weight > 0)
-    .sort((a, b) => (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0));
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const order: string[] = [];
   while (pool.length) {
     const total = pool.reduce((sum, e) => sum + e.weight, 0);
@@ -99,50 +111,117 @@ export function drawOrder(entrants: Entrant[], seed: number): string[] {
       r -= pool[i].weight;
       if (r < 0) break;
     }
-    order.push(pool[i].userId);
+    order.push(pool[i].id);
     pool.splice(i, 1);
   }
   return order;
 }
 
-export type DrawInputRow = {
+export type MemberRow = {
   userId: string;
   weight: number;
   effectiveWeight: number;
-  excluded: boolean;
+  excluded: boolean; // banned: dropped from the entry
 };
 
+export type DrawEntry = {
+  entryId: string; // userId for individuals, "group:<groupId>" for groups
+  groupId: string | null;
+  groupName?: string; // snapshot for the audit trail
+  members: MemberRow[];
+  weight: number; // individual's effective weight, or group average of eligible members
+  size: number; // tickets needed = eligible members
+  excluded: boolean; // no eligible members
+};
+
+export type Applicant = { userId: string; state: UserState; groupId?: string | null; groupName?: string };
+
+const groupEntryId = (groupId: string) => `group:${groupId}`;
+
+export function buildEntries(applicants: Applicant[], cfg: BallotConfig): DrawEntry[] {
+  const byEntry = new Map<string, { groupId: string | null; groupName?: string; members: MemberRow[] }>();
+  for (const a of applicants) {
+    const id = a.groupId ? groupEntryId(a.groupId) : a.userId;
+    const ew = effectiveWeight(a.state, cfg);
+    const row: MemberRow = { userId: a.userId, weight: a.state.weight, effectiveWeight: ew, excluded: ew <= 0 };
+    const e = byEntry.get(id) ?? { groupId: a.groupId ?? null, groupName: a.groupName, members: [] };
+    e.members.push(row);
+    byEntry.set(id, e);
+  }
+  return [...byEntry].map(([entryId, { groupId, groupName, members }]) => {
+    const eligible = members.filter((m) => !m.excluded);
+    const weight = eligible.length
+      ? round(eligible.reduce((s, m) => s + m.effectiveWeight, 0) / eligible.length)
+      : 0;
+    return {
+      entryId,
+      groupId,
+      ...(groupName !== undefined && { groupName }),
+      members,
+      weight,
+      size: eligible.length,
+      excluded: eligible.length === 0,
+    };
+  });
+}
+
+/**
+ * Walk the ranked order handing out tickets; an entry that needs more tickets
+ * than remain is skipped. (Equivalent to sampling only among entries that fit,
+ * since capacity only shrinks.)
+ */
+export function allocate(order: string[], entries: DrawEntry[], tickets: number) {
+  const byId = new Map(entries.map((e) => [e.entryId, e]));
+  let left = Math.max(0, tickets);
+  const winners: string[] = [];
+  const skipped: string[] = [];
+  for (const id of order) {
+    const e = byId.get(id)!;
+    if (e.size <= left) {
+      winners.push(id);
+      left -= e.size;
+    } else skipped.push(id);
+  }
+  const winnerUserIds = winners.flatMap((id) => byId.get(id)!.members.filter((m) => !m.excluded).map((m) => m.userId));
+  return { winners, skipped, winnerUserIds, ticketsLeft: left };
+}
+
+/** Old audit records (pre-groups) stored one row per user; read them as individual entries. */
+export function normalizeInput(json: string): DrawEntry[] {
+  const rows = JSON.parse(json) as (DrawEntry | MemberRow)[];
+  return rows.map((r) =>
+    "entryId" in r
+      ? r
+      : { entryId: r.userId, groupId: null, members: [r], weight: r.effectiveWeight, size: r.excluded ? 0 : 1, excluded: r.excluded },
+  );
+}
+
 export type MainDrawResult = {
-  input: DrawInputRow[];
+  input: DrawEntry[];
   order: string[];
-  winners: string[];
+  winners: string[]; // entry ids
+  winnerUserIds: string[];
   changes: StateChange[];
 };
 
 /**
  * Main (round 1) draw for a game.
- * - applicants: users who applied, with current state
+ * - applicants: users who applied (with groupId if applying as a group), with current state
  * - penalised: ALL users with an active penalty (applied or not); each consumes one penalty game
- * Applicants who lose get +increment. Winners unchanged until they accept/return.
+ * Losing entries: each eligible member +increment. Winning groups: members reset to base now.
+ * Winning individuals: unchanged until they accept/return.
  */
 export function runMainDraw(args: {
-  applicants: { userId: string; state: UserState }[];
+  applicants: Applicant[];
   penalised: { userId: string; state: UserState }[];
   tickets: number;
   seed: number;
   cfg: BallotConfig;
 }): MainDrawResult {
   const { applicants, penalised, tickets, seed, cfg } = args;
-
-  const input: DrawInputRow[] = applicants.map(({ userId, state }) => {
-    const ew = effectiveWeight(state, cfg);
-    return { userId, weight: state.weight, effectiveWeight: ew, excluded: ew <= 0 };
-  });
-  const order = drawOrder(
-    input.map((r) => ({ userId: r.userId, weight: r.effectiveWeight })),
-    seed,
-  );
-  const winners = order.slice(0, Math.max(0, tickets));
+  const input = buildEntries(applicants, cfg);
+  const order = drawOrder(input.map((e) => ({ id: e.entryId, weight: e.weight })), seed);
+  const { winners, winnerUserIds } = allocate(order, input, tickets);
   const winnerSet = new Set(winners);
 
   const states = new Map<string, UserState>();
@@ -156,32 +235,35 @@ export function runMainDraw(args: {
     changes.push({ userId, reason, before, after });
   };
 
-  for (const row of input) {
-    if (!row.excluded && !winnerSet.has(row.userId)) {
-      apply(row.userId, "UNSUCCESSFUL", (s) => onUnsuccessful(s, cfg));
+  for (const e of input) {
+    for (const m of e.members.filter((m) => !m.excluded)) {
+      if (!winnerSet.has(e.entryId)) apply(m.userId, "UNSUCCESSFUL", (s) => onUnsuccessful(s, cfg));
+      else if (e.groupId) apply(m.userId, "GROUP_WON", onGroupWin);
     }
   }
   for (const [userId, s] of states) {
     if (hasPenalty(s)) apply(userId, "PENALTY_USED", consumePenaltyGame);
   }
-  return { input, order, winners, changes };
+  return { input, order, winners, winnerUserIds, changes };
 }
 
 /**
- * Redraw for returned/expired tickets. Uses the round-1 effective weights
- * (snapshot) for applicants who were eligible and have not yet been allocated.
+ * Redraw for returned/expired tickets. Uses the round-1 entries (weight snapshot);
+ * an entry is out if any member already holds/held an allocation for this game.
+ * groupWinnerUserIds: members of winning groups, to reset to base by the caller.
  */
 export function runRedraw(args: {
-  mainInput: DrawInputRow[];
+  mainInput: DrawEntry[];
   alreadyAllocated: string[];
   tickets: number;
   seed: number;
-}): { input: DrawInputRow[]; order: string[]; winners: string[] } {
+}) {
   const taken = new Set(args.alreadyAllocated);
-  const input = args.mainInput.filter((r) => !r.excluded && !taken.has(r.userId));
-  const order = drawOrder(
-    input.map((r) => ({ userId: r.userId, weight: r.effectiveWeight })),
-    args.seed,
-  );
-  return { input, order, winners: order.slice(0, Math.max(0, args.tickets)) };
+  const input = args.mainInput.filter((e) => !e.excluded && !e.members.some((m) => taken.has(m.userId)));
+  const order = drawOrder(input.map((e) => ({ id: e.entryId, weight: e.weight })), args.seed);
+  const { winners, winnerUserIds } = allocate(order, input, args.tickets);
+  const groupWinnerUserIds = input
+    .filter((e) => e.groupId && winners.includes(e.entryId))
+    .flatMap((e) => e.members.filter((m) => !m.excluded).map((m) => m.userId));
+  return { input, order, winners, winnerUserIds, groupWinnerUserIds };
 }

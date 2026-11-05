@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/guard";
-import { effectiveWeight, type DrawInputRow } from "@/lib/ballot";
+import { allocate, effectiveWeight, normalizeInput } from "@/lib/ballot";
+import { groupNames } from "@/lib/groups";
 import { getSettings, openTickets, settle } from "@/lib/service";
 import { gameStatus, STATUS_LABEL } from "@/lib/status";
 import { fmt, toLondonInput } from "@/lib/time";
@@ -31,8 +32,10 @@ export default async function AdminGame({ params }: { params: Promise<{ id: stri
   const now = new Date();
   const status = gameStatus(game, game.draws.length > 0, now);
   const canDraw = game.draws.length === 0 && now >= game.applicationDeadline && now < game.kickoff;
-  const { open, pool } = await openTickets(id);
+  const { open, pool, fits } = await openTickets(id);
   const names = new Map(game.applications.map((a) => [a.userId, a.user.name]));
+  const liveGroups = await groupNames(game.applications.map((a) => a.groupId));
+  const groupCount = new Set(game.applications.map((a) => a.groupId).filter(Boolean)).size;
 
   return (
     <div className="space-y-6">
@@ -91,10 +94,13 @@ export default async function AdminGame({ params }: { params: Promise<{ id: stri
           <div className="space-y-4">
             <Results draws={game.draws} />
             <div className="border-t border-slate-100 pt-4 text-sm">
-              <p className="mb-2">Unclaimed tickets: <strong>{open}</strong> · Remaining eligible applicants: <strong>{pool}</strong></p>
-              {open > 0 && pool > 0 && now < game.kickoff && (
-                <ActionButton action={redrawAction.bind(null, id)} confirm={`Redraw ${Math.min(open, pool)} ticket(s)?`}>
-                  Redraw {Math.min(open, pool)} ticket(s)
+              <p className="mb-2">
+                Unclaimed tickets: <strong>{open}</strong> · Remaining entries: <strong>{pool}</strong>
+                {pool > fits && <> ({fits} small enough for {open} ticket{open === 1 ? "" : "s"})</>}
+              </p>
+              {open > 0 && fits > 0 && now < game.kickoff && (
+                <ActionButton action={redrawAction.bind(null, id)} confirm={`Redraw ${open} ticket(s)?`}>
+                  Redraw {open} ticket(s)
                 </ActionButton>
               )}
             </div>
@@ -103,14 +109,17 @@ export default async function AdminGame({ params }: { params: Promise<{ id: stri
       </section>
 
       <section className="card">
-        <h2 className="mb-3">Applicants ({game.applications.length})</h2>
+        <h2 className="mb-3">
+          Applicants ({game.applications.length}{groupCount > 0 && `, incl. ${groupCount} group${groupCount === 1 ? "" : "s"}`})
+        </h2>
         <div className="overflow-x-auto">
           <table className="table">
-            <thead><tr><th>Name</th><th>Email</th><th>Applied</th><th>Weight</th><th>Weight in draw now</th></tr></thead>
+            <thead><tr><th>Name</th><th>Group</th><th>Email</th><th>Applied</th><th>Weight</th><th>Weight in draw now</th></tr></thead>
             <tbody>
-              {game.applications.map((a) => (
+              {[...game.applications].sort((a, b) => (a.groupId ?? "~").localeCompare(b.groupId ?? "~")).map((a) => (
                 <tr key={a.id}>
                   <td><Link href={`/admin/users/${a.userId}`} className="hover:underline">{a.user.name}</Link></td>
+                  <td>{a.groupId ? (liveGroups.get(a.groupId) ?? "Group (deleted)") : "—"}</td>
                   <td>{a.user.email}</td>
                   <td className="whitespace-nowrap">{fmt(a.createdAt)}</td>
                   <td>{a.user.weight}</td>
@@ -127,8 +136,12 @@ export default async function AdminGame({ params }: { params: Promise<{ id: stri
           <h2 className="mb-3">Audit</h2>
           <div className="space-y-6">
             {game.draws.map((d) => {
-              const input = JSON.parse(d.inputJson) as DrawInputRow[];
+              const input = normalizeInput(d.inputJson);
               const order = JSON.parse(d.orderJson) as string[];
+              const { winners } = allocate(order, input, d.ticketCount);
+              const byId = new Map(input.map((e) => [e.entryId, e]));
+              const rows = [...order.map((id) => byId.get(id)!), ...input.filter((e) => e.excluded)];
+              const label = (uid: string) => names.get(uid) ?? uid;
               return (
                 <div key={d.id} className="text-sm">
                   <p className="font-medium">
@@ -136,17 +149,36 @@ export default async function AdminGame({ params }: { params: Promise<{ id: stri
                   </p>
                   <div className="mt-2 overflow-x-auto">
                     <table className="table">
-                      <thead><tr><th>Rank</th><th>Applicant</th><th>Base weight</th><th>Draw weight</th><th>Outcome</th></tr></thead>
+                      <thead><tr><th>Rank</th><th>Entry</th><th>Tickets needed</th><th>Draw weight</th><th>Outcome</th></tr></thead>
                       <tbody>
-                        {[...order.map((u) => input.find((r) => r.userId === u)!), ...input.filter((r) => r.excluded)].map((r) => {
-                          const rank = order.indexOf(r.userId);
+                        {rows.map((e) => {
+                          const rank = order.indexOf(e.entryId);
                           return (
-                            <tr key={r.userId}>
+                            <tr key={e.entryId} className="align-top">
                               <td>{rank >= 0 ? rank + 1 : "—"}</td>
-                              <td>{names.get(r.userId) ?? r.userId}</td>
-                              <td>{r.weight}</td>
-                              <td>{r.effectiveWeight}</td>
-                              <td>{r.excluded ? "Excluded (ban)" : rank < d.ticketCount ? "Won" : "Unsuccessful"}</td>
+                              <td>
+                                {e.groupId ? (
+                                  <>
+                                    <span className="font-medium">{e.groupName ?? "Group"}</span>
+                                    <ul className="text-xs text-slate-500">
+                                      {e.members.map((m) => (
+                                        <li key={m.userId}>
+                                          {label(m.userId)} · weight {m.weight} → {m.excluded ? "banned, left out" : m.effectiveWeight}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                ) : (
+                                  <>{label(e.members[0].userId)} <span className="text-xs text-slate-500">· base {e.members[0].weight}</span></>
+                                )}
+                              </td>
+                              <td>{e.size}</td>
+                              <td>{e.weight}{e.groupId && e.size > 0 && <span className="text-xs text-slate-500"> (avg)</span>}</td>
+                              <td>
+                                {e.excluded ? "Excluded (ban)"
+                                  : winners.includes(e.entryId) ? "Won"
+                                  : "Unsuccessful"}
+                              </td>
                             </tr>
                           );
                         })}
@@ -158,7 +190,7 @@ export default async function AdminGame({ params }: { params: Promise<{ id: stri
             })}
           </div>
           <p className="mt-4 text-xs text-slate-500">
-            Results are reproducible: <code>drawOrder(input, seed)</code> in <code>src/lib/ballot.ts</code> with the stored input and seed returns the stored order.
+            Results are reproducible: <code>drawOrder(entries, seed)</code> in <code>src/lib/ballot.ts</code> with the stored input and seed returns the stored order; <code>allocate()</code> then hands out tickets in that order, skipping entries too big for the tickets left.
           </p>
         </section>
       )}

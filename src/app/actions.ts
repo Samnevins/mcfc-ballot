@@ -9,6 +9,7 @@ import { signIn, signOut } from "@/auth";
 import { db } from "@/lib/db";
 import { requireAdmin, requireUser } from "@/lib/guard";
 import * as svc from "@/lib/service";
+import * as groups from "@/lib/groups";
 import { fromLondonInput } from "@/lib/time";
 import type { ActionState } from "@/components/ActionButton";
 
@@ -26,29 +27,48 @@ async function attempt(fn: () => Promise<unknown>, ok?: string): Promise<ActionS
 
 // ---------- Auth ----------
 
+const STATUS_MESSAGE: Record<string, string> = {
+  PENDING: "Your registration is awaiting approval by a club admin.",
+  REJECTED: "Your registration was not approved. Contact the club if you think this is a mistake.",
+  SUSPENDED: "Your account is suspended. Contact the club.",
+};
+
 export async function loginAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  const email = String(fd.get("email") ?? "").trim().toLowerCase();
+  const password = String(fd.get("password") ?? "");
+  const user = await db.user.findUnique({ where: { email } });
+  if (user && user.status !== "APPROVED" && (await bcrypt.compare(password, user.passwordHash))) {
+    return { error: STATUS_MESSAGE[user.status] ?? "Account not active" };
+  }
   try {
-    await signIn("credentials", { email: fd.get("email"), password: fd.get("password"), redirectTo: "/" });
+    await signIn("credentials", { email, password, redirectTo: "/" });
   } catch (e) {
     if (e instanceof AuthError) return { error: "Invalid email or password" };
     throw e; // redirect
   }
 }
 
-const registerSchema = z.object({
-  name: z.string().trim().min(2, "Name is required"),
-  email: z.string().trim().toLowerCase().email("Invalid email"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
-});
+const optional = z.string().trim().max(50).optional().transform((v) => v || null);
 
+const registerSchema = z
+  .object({
+    name: z.string().trim().min(2, "Name is required").max(100),
+    email: z.string().trim().toLowerCase().email("Invalid email"),
+    phone: optional,
+    membershipNumber: optional,
+    password: z.string().min(8, "Password must be at least 8 characters"),
+    confirm: z.string(),
+  })
+  .refine((d) => d.password === d.confirm, "Passwords do not match");
+
+/** Creates a PENDING account; an admin must approve it before sign-in. */
 export async function registerAction(_: ActionState, fd: FormData): Promise<ActionState> {
   const p = registerSchema.safeParse(Object.fromEntries(fd));
   if (!p.success) return { error: p.error.issues[0].message };
-  if (await db.user.findUnique({ where: { email: p.data.email } })) return { error: "Email already registered" };
-  await db.user.create({
-    data: { name: p.data.name, email: p.data.email, passwordHash: await bcrypt.hash(p.data.password, 10) },
-  });
-  await signIn("credentials", { email: p.data.email, password: p.data.password, redirectTo: "/" });
+  const { confirm: _c, password, ...data } = p.data;
+  if (await db.user.findUnique({ where: { email: data.email } })) return { error: "Email already registered" };
+  await db.user.create({ data: { ...data, passwordHash: await bcrypt.hash(password, 10) } });
+  return { ok: "Thanks for registering. A club admin will review your account; you can sign in once it's approved." };
 }
 
 export async function logoutAction() {
@@ -65,6 +85,16 @@ export async function applyAction(gameId: string): Promise<ActionState> {
 export async function withdrawAction(gameId: string): Promise<ActionState> {
   const u = await requireUser();
   return attempt(() => svc.withdraw(gameId, u.id));
+}
+
+export async function applyGroupAction(gameId: string): Promise<ActionState> {
+  const u = await requireUser();
+  return attempt(() => svc.applyGroup(gameId, u.id));
+}
+
+export async function withdrawGroupAction(gameId: string): Promise<ActionState> {
+  const u = await requireUser();
+  return attempt(() => svc.withdrawGroup(gameId, u.id));
 }
 
 export async function respondAction(allocationId: string, accept: boolean): Promise<ActionState> {
@@ -133,8 +163,130 @@ export async function saveSettingsAction(_: ActionState, fd: FormData): Promise<
   return attempt(() => db.settings.upsert({ where: { id: 1 }, create: { id: 1, ...p.data }, update: p.data }), "Saved");
 }
 
-export async function setRoleAction(userId: string, role: "ADMIN" | "SUPPORTER"): Promise<ActionState> {
+// ---------- Admin: users ----------
+
+const userSchema = z.object({
+  name: z.string().trim().min(2, "Name is required").max(100),
+  email: z.string().trim().toLowerCase().email("Invalid email"),
+  phone: optional,
+  membershipNumber: optional,
+  role: z.enum(["SUPPORTER", "ADMIN"]),
+  status: z.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]),
+});
+
+export async function setStatusAction(userId: string, status: "APPROVED" | "REJECTED" | "SUSPENDED"): Promise<ActionState> {
   const admin = await requireAdmin();
-  if (admin.id === userId) return { error: "You cannot change your own role" };
-  return attempt(() => db.user.update({ where: { id: userId }, data: { role } }));
+  if (admin.id === userId) return { error: "You cannot change your own status" };
+  return attempt(() => db.user.update({ where: { id: userId }, data: { status } }));
+}
+
+export async function createUserAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const p = userSchema.extend({ password: z.string().min(8, "Password must be at least 8 characters") })
+    .safeParse({ ...Object.fromEntries(fd), status: "APPROVED" });
+  if (!p.success) return { error: p.error.issues[0].message };
+  const { password, ...data } = p.data;
+  if (await db.user.findUnique({ where: { email: data.email } })) return { error: "Email already registered" };
+  const user = await db.user.create({ data: { ...data, passwordHash: await bcrypt.hash(password, 10) } });
+  revalidatePath("/", "layout");
+  redirect(`/admin/users/${user.id}`);
+}
+
+export async function updateUserAction(userId: string, _: ActionState, fd: FormData): Promise<ActionState> {
+  const admin = await requireAdmin();
+  const p = userSchema.safeParse(Object.fromEntries(fd));
+  if (!p.success) return { error: p.error.issues[0].message };
+  if (admin.id === userId && (p.data.role !== "ADMIN" || p.data.status !== "APPROVED")) {
+    return { error: "You cannot remove your own admin role or deactivate yourself" };
+  }
+  const clash = await db.user.findUnique({ where: { email: p.data.email } });
+  if (clash && clash.id !== userId) return { error: "Email already used by another account" };
+  return attempt(() => db.user.update({ where: { id: userId }, data: p.data }), "Saved");
+}
+
+export async function resetPasswordAction(userId: string, _: ActionState, fd: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const password = String(fd.get("password") ?? "");
+  if (password.length < 8) return { error: "Password must be at least 8 characters" };
+  const passwordHash = await bcrypt.hash(password, 10);
+  return attempt(() => db.user.update({ where: { id: userId }, data: { passwordHash } }), "Password updated");
+}
+
+const weightSchema = z.object({
+  weight: z.coerce.number().min(0).max(100),
+  banGamesLeft: z.coerce.number().int().min(0).max(10),
+  reducedGamesLeft: z.coerce.number().int().min(0).max(10),
+});
+
+/** Manual weight/penalty override, logged as ADMIN. */
+export async function adjustWeightAction(userId: string, _: ActionState, fd: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const p = weightSchema.safeParse(Object.fromEntries(fd));
+  if (!p.success) return { error: p.error.issues[0].message };
+  return attempt(
+    () =>
+      db.$transaction(async (tx) => {
+        const u = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+        await svc.applyChange(tx, userId, "ADMIN", svc.stateOf(u), p.data);
+      }),
+    "Weight updated",
+  );
+}
+
+// ---------- Groups (supporters: own group; admins: any group) ----------
+
+const groupName = z.string().trim().min(2, "Group name is required").max(60);
+
+/** Leader acting on own group, or admin acting on any (actor = null skips the leader check). */
+async function groupActor(groupId: string) {
+  const u = await requireUser();
+  if (u.role === "ADMIN") {
+    const g = await db.group.findUnique({ where: { id: groupId } });
+    return g?.leaderId === u.id ? u.id : null;
+  }
+  return u.id;
+}
+
+export async function createGroupAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  const u = await requireUser();
+  const p = groupName.safeParse(fd.get("name"));
+  if (!p.success) return { error: p.error.issues[0].message };
+  return attempt(() => groups.createGroup(u.id, p.data));
+}
+
+export async function joinGroupAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  const u = await requireUser();
+  return attempt(() => groups.joinGroup(u.id, String(fd.get("code") ?? "")));
+}
+
+export async function leaveGroupAction(): Promise<ActionState> {
+  const u = await requireUser();
+  return attempt(() => groups.leaveGroup(u.id));
+}
+
+export async function removeMemberAction(groupId: string, userId: string): Promise<ActionState> {
+  const actor = await groupActor(groupId);
+  return attempt(() => groups.removeMember(groupId, userId, actor));
+}
+
+export async function makeLeaderAction(groupId: string, userId: string): Promise<ActionState> {
+  const actor = await groupActor(groupId);
+  return attempt(() => groups.makeLeader(groupId, userId, actor));
+}
+
+export async function renameGroupAction(groupId: string, _: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await groupActor(groupId);
+  const p = groupName.safeParse(fd.get("name"));
+  if (!p.success) return { error: p.error.issues[0].message };
+  return attempt(() => groups.renameGroup(groupId, p.data, actor), "Renamed");
+}
+
+export async function resetCodeAction(groupId: string): Promise<ActionState> {
+  const actor = await groupActor(groupId);
+  return attempt(() => groups.resetCode(groupId, actor));
+}
+
+export async function deleteGroupAction(groupId: string): Promise<ActionState> {
+  const actor = await groupActor(groupId);
+  return attempt(() => groups.deleteGroup(groupId, actor));
 }

@@ -1,11 +1,11 @@
 "use client";
-import { useActionState } from "react";
+import { useFormAction } from "@/components/useFormAction";
 import { saveGameAction } from "@/app/actions";
 
 type Values = { opponent: string; venue: string; kickoff: string; applicationDeadline: string; drawAt: string; ticketsAvailable: number };
 
 export function GameForm({ id, values }: { id: string | null; values?: Values }) {
-  const [state, run, pending] = useActionState(saveGameAction.bind(null, id), undefined);
+  const { state, onSubmit, pending } = useFormAction(saveGameAction.bind(null, id));
   const field = (name: keyof Values, label: string, type = "text") => (
     <div>
       <label className="label" htmlFor={name}>{label}</label>
@@ -13,7 +13,7 @@ export function GameForm({ id, values }: { id: string | null; values?: Values })
     </div>
   );
   return (
-    <form action={run} className="grid gap-4 sm:grid-cols-2">
+    <form onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2">
       {field("opponent", "Opponent")}
       {field("venue", "Venue")}
       {field("kickoff", "Kickoff (UK time)", "datetime-local")}

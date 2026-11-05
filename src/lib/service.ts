@@ -2,11 +2,12 @@ import { randomInt } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import {
+  normalizeInput,
   onAccepted,
   onForfeit,
+  onGroupWin,
   runMainDraw,
   runRedraw,
-  type DrawInputRow,
   type UserState,
   type WeightReason,
 } from "@/lib/ballot";
@@ -20,14 +21,14 @@ export async function getSettings(tx: Tx = db) {
   );
 }
 
-const stateOf = (u: { weight: number; banGamesLeft: number; reducedGamesLeft: number }): UserState => ({
+export const stateOf = (u: { weight: number; banGamesLeft: number; reducedGamesLeft: number }): UserState => ({
   weight: u.weight,
   banGamesLeft: u.banGamesLeft,
   reducedGamesLeft: u.reducedGamesLeft,
 });
 
 /** Persist a user state change and log it. */
-async function applyChange(
+export async function applyChange(
   tx: Tx,
   userId: string,
   reason: WeightReason | "ADMIN",
@@ -82,12 +83,21 @@ export async function runGameDraw(gameId: string, tickets: number, adminId: stri
 
     const cfg = await getSettings(tx);
     const apps = await tx.application.findMany({ where: { gameId }, include: { user: true } });
+    const groupIds = [...new Set(apps.map((a) => a.groupId).filter((x): x is string => !!x))];
+    const names = new Map(
+      (await tx.group.findMany({ where: { id: { in: groupIds } } })).map((g) => [g.id, g.name]),
+    );
     const penalised = await tx.user.findMany({
       where: { OR: [{ banGamesLeft: { gt: 0 } }, { reducedGamesLeft: { gt: 0 } }] },
     });
     const seed = newSeed();
     const result = runMainDraw({
-      applicants: apps.map((a) => ({ userId: a.userId, state: stateOf(a.user) })),
+      applicants: apps.map((a) => ({
+        userId: a.userId,
+        state: stateOf(a.user),
+        groupId: a.groupId,
+        groupName: a.groupId ? (names.get(a.groupId) ?? "Group (deleted)") : undefined,
+      })),
       penalised: penalised.map((u) => ({ userId: u.id, state: stateOf(u) })),
       tickets,
       seed,
@@ -107,7 +117,7 @@ export async function runGameDraw(gameId: string, tickets: number, adminId: stri
       },
     });
     const respondBy = new Date(now.getTime() + cfg.acceptWindowHours * 3600_000);
-    for (const userId of result.winners) {
+    for (const userId of result.winnerUserIds) {
       await tx.allocation.create({ data: { drawId: draw.id, gameId, userId, respondBy } });
     }
     for (const c of result.changes) {
@@ -117,16 +127,18 @@ export async function runGameDraw(gameId: string, tickets: number, adminId: stri
   });
 }
 
-/** Tickets from round 1 not currently held (pending/accepted). */
+/** Tickets from round 1 not currently held (pending/accepted), and entries that could take them. */
 export async function openTickets(gameId: string, tx: Tx = db) {
   const main = await tx.draw.findUnique({ where: { gameId_round: { gameId, round: 1 } } });
-  if (!main) return { main: null, open: 0, pool: 0 };
+  if (!main) return { main: null, open: 0, pool: 0, fits: 0 };
   const allocs = await tx.allocation.findMany({ where: { gameId } });
   const held = allocs.filter((a) => a.status === "PENDING" || a.status === "ACCEPTED").length;
-  const input = JSON.parse(main.inputJson) as DrawInputRow[];
+  const open = Math.max(0, main.ticketCount - held);
   const taken = new Set(allocs.map((a) => a.userId));
-  const pool = input.filter((r) => !r.excluded && !taken.has(r.userId)).length;
-  return { main, open: Math.max(0, main.ticketCount - held), pool };
+  const remaining = normalizeInput(main.inputJson).filter(
+    (e) => !e.excluded && !e.members.some((m) => taken.has(m.userId)),
+  );
+  return { main, open, pool: remaining.length, fits: remaining.filter((e) => e.size <= open).length };
 }
 
 export async function runGameRedraw(gameId: string, adminId: string, now = new Date()) {
@@ -142,12 +154,12 @@ export async function runGameRedraw(gameId: string, adminId: string, now = new D
     const last = await tx.draw.findFirstOrThrow({ where: { gameId }, orderBy: { round: "desc" } });
     const seed = newSeed();
     const result = runRedraw({
-      mainInput: JSON.parse(main.inputJson),
+      mainInput: normalizeInput(main.inputJson),
       alreadyAllocated: allocs.map((a) => a.userId),
       tickets: open,
       seed,
     });
-    if (result.winners.length === 0) throw new Error("No remaining applicants");
+    if (result.winners.length === 0) throw new Error("No remaining applicants fit the tickets left");
 
     const cfg = await getSettings(tx);
     const draw = await tx.draw.create({
@@ -163,8 +175,13 @@ export async function runGameRedraw(gameId: string, adminId: string, now = new D
       },
     });
     const respondBy = new Date(now.getTime() + cfg.acceptWindowHours * 3600_000);
-    for (const userId of result.winners) {
+    for (const userId of result.winnerUserIds) {
       await tx.allocation.create({ data: { drawId: draw.id, gameId, userId, respondBy } });
+    }
+    for (const userId of result.groupWinnerUserIds) {
+      const u = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+      const before = stateOf(u);
+      await applyChange(tx, userId, "GROUP_WON", before, onGroupWin(before), gameId);
     }
     return draw;
   });
@@ -190,18 +207,51 @@ export async function respondToAllocation(
   });
 }
 
-export async function apply(gameId: string, userId: string, now = new Date()) {
-  const game = await db.game.findUniqueOrThrow({ where: { id: gameId } });
+// ---------- Applications ----------
+
+async function openGame(gameId: string, now: Date, tx: Tx = db) {
+  const game = await tx.game.findUniqueOrThrow({ where: { id: gameId } });
   if (now >= game.applicationDeadline) throw new Error("Applications are closed");
-  await db.application.upsert({
-    where: { userId_gameId: { userId, gameId } },
-    create: { userId, gameId },
-    update: {},
-  });
+  return game;
+}
+
+/** Apply on your own. Not allowed while your group has applied for this game. */
+export async function apply(gameId: string, userId: string, now = new Date()) {
+  await openGame(gameId, now);
+  const existing = await db.application.findUnique({ where: { userId_gameId: { userId, gameId } } });
+  if (existing?.groupId) throw new Error("You are already in your group's application");
+  if (!existing) await db.application.create({ data: { userId, gameId } });
 }
 
 export async function withdraw(gameId: string, userId: string, now = new Date()) {
-  const game = await db.game.findUniqueOrThrow({ where: { id: gameId } });
-  if (now >= game.applicationDeadline) throw new Error("Applications are closed");
+  await openGame(gameId, now);
+  const existing = await db.application.findUnique({ where: { userId_gameId: { userId, gameId } } });
+  if (existing?.groupId) throw new Error("Your group leader withdraws group applications, or you can leave the group");
   await db.application.deleteMany({ where: { userId, gameId } });
+}
+
+/** Leader applies for the whole group; replaces any individual applications by members. */
+export async function applyGroup(gameId: string, leaderId: string, now = new Date()) {
+  await db.$transaction(async (tx) => {
+    const game = await openGame(gameId, now, tx);
+    const group = await tx.group.findFirst({ where: { leaderId }, include: { members: true } });
+    if (!group) throw new Error("Only a group leader can apply for the group");
+    if (group.members.length > game.ticketsAvailable) {
+      throw new Error(`Your group has ${group.members.length} members but only ${game.ticketsAvailable} tickets are available`);
+    }
+    for (const m of group.members) {
+      await tx.application.upsert({
+        where: { userId_gameId: { userId: m.userId, gameId } },
+        create: { userId: m.userId, gameId, groupId: group.id },
+        update: { groupId: group.id },
+      });
+    }
+  });
+}
+
+export async function withdrawGroup(gameId: string, leaderId: string, now = new Date()) {
+  await openGame(gameId, now);
+  const group = await db.group.findFirst({ where: { leaderId } });
+  if (!group) throw new Error("Only a group leader can withdraw the group");
+  await db.application.deleteMany({ where: { gameId, groupId: group.id } });
 }

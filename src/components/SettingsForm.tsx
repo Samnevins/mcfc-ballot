@@ -1,11 +1,11 @@
 "use client";
-import { useActionState } from "react";
+import { useFormAction } from "@/components/useFormAction";
 import { saveSettingsAction } from "@/app/actions";
 
 export function SettingsForm({ values }: { values: { weightIncrement: number; reducedMultiplier: number; acceptWindowHours: number } }) {
-  const [state, run, pending] = useActionState(saveSettingsAction, undefined);
+  const { state, onSubmit, pending } = useFormAction(saveSettingsAction);
   return (
-    <form action={run} className="grid max-w-md gap-4">
+    <form onSubmit={onSubmit} className="grid max-w-md gap-4">
       <div>
         <label className="label" htmlFor="weightIncrement">Weight added per unsuccessful application (X)</label>
         <input id="weightIncrement" name="weightIncrement" type="number" step="0.05" min={0} className="input" defaultValue={values.weightIncrement} />

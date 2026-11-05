@@ -24,13 +24,17 @@ Ticket ballot app for the Manchester City London Supporters Club. Keep it simple
 - `src/lib/service.ts`: DB side: `settle()`, `runGameDraw`, `runGameRedraw`, `respondToAllocation`, apply/withdraw. Writes `WeightLog`.
 - `src/lib/status.ts`: derived game and allocation statuses
 - `src/lib/time.ts`: Europe/London conversions. Store UTC, display and input in London time.
-- `src/lib/guard.ts`: `requireUser()` / `requireAdmin()`. These load the user fresh from the DB.
+- `src/lib/groups.ts`: group create/join/leave/remove/disband. Membership changes only touch applications for games that are still open.
+- `src/lib/guard.ts`: `requireUser()` / `requireAdmin()`. These load the user fresh from the DB and only accept `APPROVED` users.
+- `src/components/useFormAction.ts`: use it for every form. It submits through onSubmit so React 19 doesn't reset the form on a validation error.
 
 ## Rules
 - Weighting and draw rules change only in `ballot.ts`, with tests. Keep that file pure.
 - Never store status columns that can be derived from timestamps. There is no scheduler or cron in the app. Expiry is applied lazily by `settle()`, so call it at the top of pages that show allocations.
 - Every change to weight or penalty goes through `applyChange()` in `service.ts`, so it is logged.
-- Draws are immutable audit records (seed + inputJson + orderJson). Never edit or delete them.
+- Draws are immutable audit records (seed + inputJson + orderJson). Never edit or delete them. `inputJson` is `DrawEntry[]`. Read it with `normalizeInput()`, which also handles the older format with one row per user.
+- `User.status` controls access: PENDING | APPROVED | REJECTED | SUSPENDED. Only APPROVED users can sign in.
+- `Application.groupId` is a plain string with no foreign key, so closed applications stay grouped even if the group later changes or is deleted.
 - Every server action must call `requireUser()` or `requireAdmin()` itself. Page guards don't protect actions.
 - Next 16: `params` and `searchParams` are Promises, so `await` them.
 - Keep dependencies minimal. Ask before adding one.

@@ -11,6 +11,7 @@ const REASON: Record<string, string> = {
   RETURNED: "Ticket returned (penalty)",
   EXPIRED: "Not accepted in time (penalty)",
   PENALTY_USED: "Penalty game served",
+  GROUP_WON: "Group won tickets (reset)",
   ADMIN: "Admin change",
 };
 

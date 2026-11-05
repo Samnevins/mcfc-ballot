@@ -1,5 +1,5 @@
 "use client";
-import { useActionState } from "react";
+import { useFormAction } from "@/components/useFormAction";
 
 export type ActionState = { error?: string; ok?: string } | undefined;
 
@@ -13,13 +13,9 @@ export function ActionButton({
   confirm?: string;
   fields?: React.ReactNode;
 }) {
-  const [state, run, pending] = useActionState(action, undefined);
+  const { state, onSubmit, pending } = useFormAction(action, confirm);
   return (
-    <form
-      action={run}
-      onSubmit={(e) => { if (confirm && !window.confirm(confirm)) e.preventDefault(); }}
-      className="inline-flex flex-wrap items-end gap-2"
-    >
+    <form onSubmit={onSubmit} className="inline-flex flex-wrap items-end gap-2">
       {fields}
       <button className={className} disabled={pending}>{pending ? "Working…" : children}</button>
       {state?.error && <p className="w-full text-sm text-red-600">{state.error}</p>}

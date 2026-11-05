@@ -39,7 +39,7 @@ export async function UserSummary({ userId }: { userId: string }) {
         <h2 className="mb-3">Applications</h2>
         {user.applications.length === 0 && <p className="text-sm text-slate-500">No applications yet.</p>}
         <ul className="divide-y divide-slate-100">
-          {user.applications.map(({ game }) => {
+          {user.applications.map(({ game, groupId }) => {
             const alloc = user.allocations.find((a) => a.gameId === game.id);
             const drawn = game.draws.length > 0;
             const gs = gameStatus(game, drawn, now);
@@ -47,6 +47,7 @@ export async function UserSummary({ userId }: { userId: string }) {
               <li key={game.id} className="flex flex-wrap items-center gap-3 py-2 text-sm">
                 <Link href={`/games/${game.id}`} className="font-medium hover:underline">v {game.opponent}</Link>
                 <span className="text-slate-500">{fmt(game.kickoff)}</span>
+                {groupId && <span className="text-xs text-slate-500">· with group</span>}
                 <span className="ml-auto">
                   {alloc ? <Badge value={allocationStatus(alloc, now)}>Won · {allocationStatus(alloc, now)}</Badge>
                     : drawn ? <Badge value="past">Unsuccessful</Badge>

@@ -15,8 +15,9 @@ npm run dev                     # http://localhost:3000
 Seed logins (`npm run db:seed` resets the DB):
 - Admin: `admin@example.com` / `admin123`
 - Supporters: `supporter1@example.com` … `supporter10@example.com` / `password123`
+- Awaiting approval: `pending1@example.com`, `pending2@example.com` / `password123`
 
-The seed creates 3 games. The Arsenal game's deadline has already passed and it has 8 applicants, so an admin can run a draw straight away.
+The seed creates 3 games and 2 groups. The Arsenal game's deadline has already passed. It has 7 individual applicants plus the 3-member group "Blue Moon Crew", so an admin can run a draw straight away.
 
 ```bash
 npm test          # unit tests (ballot logic, time zones)
@@ -33,6 +34,13 @@ npm run typecheck
   - Returning a ticket, or not accepting it in time, bans the user from the next game and multiplies their weight by M for the 2 games after that.
   - "Next game" means the next main draw that runs. X, M and the accept window are set on Admin → Settings.
   - Every change is written to `WeightLog`.
+- **Registration:** new accounts start as `PENDING` and can't sign in until an admin approves them (Admin → Users). Admins can also reject or suspend accounts, add users directly, edit details and roles, reset passwords, and adjust weights or penalties (logged as an admin change).
+- **Groups** (My group): a supporter creates a group and shares its 6-character join code. A supporter can be in only one group.
+  - The leader applies for a game on behalf of the whole group, which replaces any applications members made on their own.
+  - In the draw, a group is one entry. Its weight is the average of its members' effective weights, and banned members are left out.
+  - The group only wins if enough tickets are left for all its remaining members. Otherwise the draw moves on to the next entry.
+  - When a group wins, every member's weight resets to 1.0 straight away. Each member then accepts or returns their own ticket, and a return or expiry penalises only that member.
+  - Group membership is fixed at the application deadline. Joining or leaving afterwards only affects games that are still open.
 - **Redraws:** when tickets are returned or expire, the admin presses "Redraw". Redraws use the remaining eligible applicants with the weights from the main draw.
 
 ## Deploy (Amazon Lightsail, London)

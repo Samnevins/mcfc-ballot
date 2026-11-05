@@ -7,6 +7,9 @@ const colours: Record<string, string> = {
   ACCEPTED: "bg-green-100 text-green-800",
   RETURNED: "bg-red-100 text-red-800",
   EXPIRED: "bg-red-100 text-red-800",
+  APPROVED: "bg-green-100 text-green-800",
+  REJECTED: "bg-slate-200 text-slate-600",
+  SUSPENDED: "bg-red-100 text-red-800",
 };
 
 export function Badge({ value, children }: { value: string; children?: React.ReactNode }) {

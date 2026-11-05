@@ -9,8 +9,9 @@ datasource db {
 
 // Enum-like strings (SQLite has no enums):
 // Role: SUPPORTER | ADMIN
+// UserStatus: PENDING | APPROVED | REJECTED | SUSPENDED (only APPROVED can sign in)
 // AllocationStatus: PENDING | ACCEPTED | RETURNED | EXPIRED
-// WeightReason: UNSUCCESSFUL | ACCEPTED | RETURNED | EXPIRED | PENALTY_USED | ADMIN
+// WeightReason: UNSUCCESSFUL | ACCEPTED | RETURNED | EXPIRED | PENALTY_USED | GROUP_WON | ADMIN
 
 model User {
   id               String        @id @default(cuid())
@@ -18,6 +19,9 @@ model User {
   name             String
   passwordHash     String
   role             String        @default("SUPPORTER")
+  status           String        @default("PENDING")
+  phone            String?
+  membershipNumber String?
   weight           Float         @default(1.0)
   banGamesLeft     Int           @default(0)
   reducedGamesLeft Int           @default(0)
@@ -26,6 +30,27 @@ model User {
   allocations      Allocation[]
   weightLogs       WeightLog[]
   drawsRun         Draw[]
+  groupMember      GroupMember?
+  groupsLed        Group[]
+}
+
+model Group {
+  id        String        @id @default(cuid())
+  name      String
+  code      String        @unique // join code shared by the leader
+  leaderId  String
+  leader    User          @relation(fields: [leaderId], references: [id])
+  createdAt DateTime      @default(now())
+  members   GroupMember[]
+}
+
+model GroupMember {
+  id       String   @id @default(cuid())
+  groupId  String
+  group    Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId   String   @unique // one group per supporter
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt DateTime @default(now())
 }
 
 model WeightLog {
@@ -65,9 +90,13 @@ model Application {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   gameId    String
   game      Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  // Set when applying as part of a group. Plain string (no FK) so closed
+  // applications stay grouped even if the group is later changed or deleted.
+  groupId   String?
   createdAt DateTime @default(now())
 
   @@unique([userId, gameId])
+  @@index([gameId, groupId])
 }
 
 model Draw {
@@ -77,8 +106,8 @@ model Draw {
   round       Int
   seed        Int
   ticketCount Int
-  inputJson   String // [{userId, weight, effectiveWeight, excluded}]
-  orderJson   String // ranked userIds
+  inputJson   String // DrawEntry[] (see src/lib/ballot.ts)
+  orderJson   String // ranked entry ids
   ranById     String
   ranBy       User         @relation(fields: [ranById], references: [id])
   ranAt       DateTime     @default(now())
