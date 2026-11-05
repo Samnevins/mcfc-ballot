@@ -5,6 +5,7 @@ A single Next.js app (App Router, TypeScript, Tailwind) with Prisma + SQLite and
 ## Local setup
 
 ```bash
+nvm use            # Node 22.12+ required (see .nvmrc)
 npm install
 cp .env.example .env            # then set AUTH_SECRET: openssl rand -base64 32
 npx prisma migrate dev          # creates prisma/dev.db and runs the seed

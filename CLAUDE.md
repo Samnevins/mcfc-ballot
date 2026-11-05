@@ -3,6 +3,7 @@
 Ticket ballot app for the Manchester City London Supporters Club. Keep it simple: one Next.js app, one SQLite file, no extra services.
 
 ## Stack
+- Node 22.12+ (`.nvmrc`; older Node fails on Tailwind's ESM deps)
 - Next.js 16 App Router + TypeScript + Tailwind v4 (`src/app/globals.css` holds the theme and utility classes `.btn`, `.card`, `.input`, `.table`)
 - Prisma 6 + SQLite (`prisma/schema.prisma`). String fields stand in for enums.
 - Auth.js v5 (next-auth beta), Credentials provider, JWT sessions. Role lives on `User.role` (`SUPPORTER` | `ADMIN`).
