@@ -1,0 +1,93 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { db } from "@/lib/db";
+import { requireUser } from "@/lib/guard";
+import { settle } from "@/lib/service";
+import { allocationStatus, gameStatus, STATUS_LABEL } from "@/lib/status";
+import { fmt } from "@/lib/time";
+import { applyAction, respondAction, withdrawAction } from "@/app/actions";
+import { ActionButton } from "@/components/ActionButton";
+import { Badge } from "@/components/Badge";
+import { Results } from "@/components/Results";
+
+export default async function GamePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const user = await requireUser();
+  await settle();
+  const game = await db.game.findUnique({
+    where: { id },
+    include: {
+      draws: { orderBy: { round: "asc" }, include: { allocations: { include: { user: { select: { name: true } } } } } },
+      _count: { select: { applications: true } },
+    },
+  });
+  if (!game) notFound();
+
+  const now = new Date();
+  const status = gameStatus(game, game.draws.length > 0, now);
+  const applied = !!(await db.application.findUnique({ where: { userId_gameId: { userId: user.id, gameId: id } } }));
+  const mine = game.draws.flatMap((d) => d.allocations).find((a) => a.userId === user.id);
+  const mineStatus = mine && allocationStatus(mine, now);
+
+  return (
+    <div className="space-y-6">
+      <section className="card">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h1>Manchester City v {game.opponent}</h1>
+            <p className="text-slate-600">{game.venue}</p>
+          </div>
+          <Badge value={status}>{STATUS_LABEL[status]}</Badge>
+        </div>
+        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+          <div><dt className="text-slate-500">Kickoff</dt><dd className="font-medium">{fmt(game.kickoff)}</dd></div>
+          <div><dt className="text-slate-500">Application deadline</dt><dd className="font-medium">{fmt(game.applicationDeadline)}</dd></div>
+          <div><dt className="text-slate-500">Draw</dt><dd className="font-medium">{fmt(game.drawAt)}</dd></div>
+          <div><dt className="text-slate-500">Tickets / applicants</dt><dd className="font-medium">{game.ticketsAvailable} / {game._count.applications}</dd></div>
+        </dl>
+        {user.role === "ADMIN" && (
+          <Link href={`/admin/games/${game.id}`} className="btn-secondary mt-4">Manage game</Link>
+        )}
+      </section>
+
+      <section className="card">
+        <h2 className="mb-2">Your application</h2>
+        {status === "open" ? (
+          applied ? (
+            <div className="space-y-2">
+              <p className="text-sm text-green-700">You have registered interest. You can withdraw until the deadline.</p>
+              <ActionButton action={withdrawAction.bind(null, game.id)} className="btn-secondary">Withdraw</ActionButton>
+            </div>
+          ) : (
+            <ActionButton action={applyAction.bind(null, game.id)}>Register interest</ActionButton>
+          )
+        ) : (
+          <p className="text-sm text-slate-600">
+            {applied ? "You applied for this game." : "You did not apply for this game."} Applications are closed.
+          </p>
+        )}
+
+        {mine && (
+          <div className="mt-4 rounded-lg border border-sky bg-sky/10 p-4">
+            <p className="font-medium text-navy">You were drawn for a ticket! <Badge value={mineStatus!} /></p>
+            {mineStatus === "PENDING" && (
+              <>
+                <p className="mt-1 text-sm">Accept or return by <strong>{fmt(mine.respondBy)}</strong>. Returning, or not responding in time, means a ban from the next game and reduced weight for the two after.</p>
+                <div className="mt-3 flex gap-2">
+                  <ActionButton action={respondAction.bind(null, mine.id, true)}>Accept ticket</ActionButton>
+                  <ActionButton action={respondAction.bind(null, mine.id, false)} className="btn-danger"
+                    confirm="Return this ticket? You will be banned from the next game.">Return ticket</ActionButton>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="card">
+        <h2 className="mb-3">Results</h2>
+        <Results draws={game.draws} />
+      </section>
+    </div>
+  );
+}

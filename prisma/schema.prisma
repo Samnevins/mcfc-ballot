@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Enum-like strings (SQLite has no enums):
+// Role: SUPPORTER | ADMIN
+// AllocationStatus: PENDING | ACCEPTED | RETURNED | EXPIRED
+// WeightReason: UNSUCCESSFUL | ACCEPTED | RETURNED | EXPIRED | PENALTY_USED | ADMIN
+
+model User {
+  id               String        @id @default(cuid())
+  email            String        @unique
+  name             String
+  passwordHash     String
+  role             String        @default("SUPPORTER")
+  weight           Float         @default(1.0)
+  banGamesLeft     Int           @default(0)
+  reducedGamesLeft Int           @default(0)
+  createdAt        DateTime      @default(now())
+  applications     Application[]
+  allocations      Allocation[]
+  weightLogs       WeightLog[]
+  drawsRun         Draw[]
+}
+
+model WeightLog {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gameId     String?
+  game       Game?    @relation(fields: [gameId], references: [id], onDelete: SetNull)
+  reason     String
+  oldWeight  Float
+  newWeight  Float
+  banLeft    Int
+  reducedLeft Int
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Game {
+  id                  String        @id @default(cuid())
+  opponent            String
+  venue               String
+  kickoff             DateTime
+  applicationDeadline DateTime
+  drawAt              DateTime
+  ticketsAvailable    Int
+  createdAt           DateTime      @default(now())
+  applications        Application[]
+  draws               Draw[]
+  allocations         Allocation[]
+  weightLogs          WeightLog[]
+}
+
+model Application {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gameId    String
+  game      Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, gameId])
+}
+
+model Draw {
+  id          String       @id @default(cuid())
+  gameId      String
+  game        Game         @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  round       Int
+  seed        Int
+  ticketCount Int
+  inputJson   String // [{userId, weight, effectiveWeight, excluded}]
+  orderJson   String // ranked userIds
+  ranById     String
+  ranBy       User         @relation(fields: [ranById], references: [id])
+  ranAt       DateTime     @default(now())
+  allocations Allocation[]
+
+  @@unique([gameId, round])
+}
+
+model Allocation {
+  id          String    @id @default(cuid())
+  drawId      String
+  draw        Draw      @relation(fields: [drawId], references: [id], onDelete: Cascade)
+  gameId      String
+  game        Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      String    @default("PENDING")
+  respondBy   DateTime
+  respondedAt DateTime?
+
+  @@unique([gameId, userId])
+}
+
+model Settings {
+  id                Int   @id @default(1)
+  weightIncrement   Float @default(0.5)
+  reducedMultiplier Float @default(0.5)
+  acceptWindowHours Int   @default(48)
+}
